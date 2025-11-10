@@ -34,7 +34,11 @@ def create_subnet(vpc_name, subnet_name, cidr, subnet_type):
     veth_br = f"vb-{vpc_name[:4]}-{subnet_name[:4]}"
     veth_ns = f"vn-{vpc_name[:4]}-{subnet_name[:4]}"
     bridge = vpc['bridge']
-    bridge_ip = vpc['bridge_ip']
+    
+    subnet_hosts = list(subnet_network.hosts())
+    gateway_ip = str(subnet_hosts[0])
+    subnet_ip = str(subnet_hosts[1])
+    prefix = cidr.split('/')[1]
     
     try:
         run_command(f"ip netns add {namespace}")
@@ -46,14 +50,14 @@ def create_subnet(vpc_name, subnet_name, cidr, subnet_type):
         run_command(f"ip link set {veth_br} master {bridge}")
         logger.info(f"Attached {veth_br} to bridge {bridge}")
         
+        run_command(f"ip addr add {gateway_ip}/{prefix} dev {bridge}")
+        logger.info(f"Added IP {gateway_ip}/{prefix} to bridge {bridge}")
+        
         run_command(f"ip link set {veth_br} up")
         logger.info(f"Brought up {veth_br}")
         
         run_command(f"ip link set {veth_ns} netns {namespace}")
         logger.info(f"Moved {veth_ns} to namespace {namespace}")
-        
-        subnet_ip = str(list(subnet_network.hosts())[0])
-        prefix = cidr.split('/')[1]
         
         run_command(f"ip netns exec {namespace} ip addr add {subnet_ip}/{prefix} dev {veth_ns}")
         logger.info(f"Assigned IP {subnet_ip}/{prefix} to {veth_ns}")
@@ -64,8 +68,8 @@ def create_subnet(vpc_name, subnet_name, cidr, subnet_type):
         run_command(f"ip netns exec {namespace} ip link set lo up")
         logger.info(f"Brought up loopback in namespace")
         
-        run_command(f"ip netns exec {namespace} ip route add default via {bridge_ip}")
-        logger.info(f"Added default route via {bridge_ip}")
+        run_command(f"ip netns exec {namespace} ip route add default via {gateway_ip}")
+        logger.info(f"Added default route via {gateway_ip}")
         
         subnet_data = {
             "name": subnet_name,
@@ -73,6 +77,7 @@ def create_subnet(vpc_name, subnet_name, cidr, subnet_type):
             "type": subnet_type,
             "namespace": namespace,
             "ip": subnet_ip,
+            "gateway": gateway_ip,
             "veth_br": veth_br,
             "veth_ns": veth_ns
         }
@@ -111,9 +116,13 @@ def delete_subnet(vpc_name, subnet_name):
         logger.error(f"Subnet '{subnet_name}' not found in VPC '{vpc_name}'")
         return False
     
+    vpc = get_vpc(vpc_name)
+    bridge = vpc['bridge']
     namespace = subnet['namespace']
     veth_br = subnet['veth_br']
     cidr = subnet['cidr']
+    gateway = subnet.get('gateway')
+    prefix = cidr.split('/')[1]
     
     try:
         run_command(f"ip netns del {namespace}", check=False)
@@ -121,6 +130,10 @@ def delete_subnet(vpc_name, subnet_name):
         
         run_command(f"ip link del {veth_br}", check=False)
         logger.info(f"Deleted veth {veth_br}")
+        
+        if gateway:
+            run_command(f"ip addr del {gateway}/{prefix} dev {bridge}", check=False)
+            logger.info(f"Removed IP {gateway}/{prefix} from bridge {bridge}")
         
         from .utils import get_default_interface
         internet_interface = get_default_interface()
