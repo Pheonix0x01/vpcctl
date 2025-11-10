@@ -1,4 +1,3 @@
-import ipaddress
 from .utils import (
     logger,
     run_command,
@@ -13,40 +12,43 @@ def create_vpc(name, cidr):
         logger.error(f"Invalid CIDR format: {cidr}")
         return False
     
-    state = load_state()
-    
     if get_vpc(name):
         logger.error(f"VPC '{name}' already exists")
         return False
     
-    bridge_name = f"br-{name}"
+    bridge = f"br-{name}"
+    bridge_ip = cidr.split('/')[0].rsplit('.', 1)[0] + '.1'
+    prefix = cidr.split('/')[1]
     
     try:
-        run_command(f"ip link add {bridge_name} type bridge")
-        logger.info(f"Created bridge {bridge_name}")
+        run_command(f"ip link add {bridge} type bridge")
+        logger.info(f"Created bridge {bridge}")
         
-        network = ipaddress.ip_network(cidr, strict=False)
-        bridge_ip = str(list(network.hosts())[0])
-        prefix = cidr.split('/')[1]
+        run_command(f"ip addr add {bridge_ip}/{prefix} dev {bridge}")
+        logger.info(f"Assigned IP {bridge_ip}/{prefix} to {bridge}")
         
-        run_command(f"ip addr add {bridge_ip}/{prefix} dev {bridge_name}")
-        logger.info(f"Assigned IP {bridge_ip}/{prefix} to {bridge_name}")
-        
-        run_command(f"ip link set {bridge_name} up")
-        logger.info(f"Bridge {bridge_name} is up")
+        run_command(f"ip link set {bridge} up")
+        logger.info(f"Bridge {bridge} is up")
         
         run_command("echo 1 > /proc/sys/net/ipv4/ip_forward")
         logger.info("IP forwarding enabled")
         
+        run_command(f"echo 0 > /proc/sys/net/ipv4/conf/{bridge}/send_redirects")
+        logger.info(f"Disabled ICMP redirects on {bridge}")
+        
+        run_command(f"echo 1 > /proc/sys/net/ipv4/conf/{bridge}/forwarding")
+        logger.info(f"Enabled forwarding on {bridge}")
+        
         vpc_data = {
             "name": name,
             "cidr": cidr,
-            "bridge": bridge_name,
+            "bridge": bridge,
             "bridge_ip": bridge_ip,
             "subnets": [],
             "peerings": []
         }
         
+        state = load_state()
         state['vpcs'].append(vpc_data)
         save_state(state)
         
@@ -55,7 +57,7 @@ def create_vpc(name, cidr):
         
     except Exception as e:
         logger.error(f"Failed to create VPC: {e}")
-        run_command(f"ip link del {bridge_name}", check=False)
+        run_command(f"ip link del {bridge}", check=False)
         return False
 
 def delete_vpc(name):
@@ -64,19 +66,15 @@ def delete_vpc(name):
         logger.error(f"VPC '{name}' not found")
         return False
     
+    if vpc.get('subnets'):
+        logger.error(f"Cannot delete VPC '{name}': it has active subnets")
+        return False
+    
+    bridge = vpc['bridge']
+    
     try:
-        from . import subnet as subnet_module
-        from . import peering as peering_module
-        
-        for sn in list(vpc.get('subnets', [])):
-            subnet_module.delete_subnet(name, sn['name'])
-        
-        for peer in list(vpc.get('peerings', [])):
-            peering_module.delete_peering(name, peer['peer_vpc'])
-        
-        bridge_name = vpc['bridge']
-        run_command(f"ip link del {bridge_name}", check=False)
-        logger.info(f"Deleted bridge {bridge_name}")
+        run_command(f"ip link del {bridge}", check=False)
+        logger.info(f"Deleted bridge {bridge}")
         
         state = load_state()
         state['vpcs'] = [v for v in state['vpcs'] if v['name'] != name]
