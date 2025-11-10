@@ -60,7 +60,7 @@ def main():
     exec_cmd = subparsers.add_parser('exec', help='Execute command in subnet namespace')
     exec_cmd.add_argument('--vpc', required=True, help='VPC name')
     exec_cmd.add_argument('--subnet', required=True, help='Subnet name')
-    exec_cmd.add_argument('command', nargs=argparse.REMAINDER, help='Command to execute')
+    exec_cmd.add_argument('command', nargs='*', help='Command to execute')
     
     args = parser.parse_args()
     
