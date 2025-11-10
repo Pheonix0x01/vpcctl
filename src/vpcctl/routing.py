@@ -46,6 +46,19 @@ def add_inter_subnet_routes(vpc_name):
         run_command(f"iptables -A FORWARD -i {bridge} -o {bridge} -j ACCEPT", check=False)
         logger.info(f"Added iptables rule for inter-bridge forwarding on {bridge}")
         
+        for subnet1 in subnets:
+            ns1 = subnet1['namespace']
+            gateway1 = subnet1['gateway']
+            
+            for subnet2 in subnets:
+                if subnet1['name'] == subnet2['name']:
+                    continue
+                
+                cidr2 = subnet2['cidr']
+                
+                run_command(f"ip netns exec {ns1} ip route add {cidr2} via {gateway1}", check=False)
+                logger.info(f"Added route in {ns1}: {cidr2} via {gateway1}")
+        
         logger.info(f"Inter-subnet routes configured for VPC '{vpc_name}'")
         return True
         
@@ -60,10 +73,20 @@ def setup_private_subnet_routing(vpc_name, subnet_name):
         return False
     
     namespace = subnet['namespace']
+    gateway = subnet['gateway']
     
     try:
+        vpc = get_vpc(vpc_name)
+        all_subnets = vpc.get('subnets', [])
+        
         run_command(f"ip netns exec {namespace} ip route del default", check=False)
         logger.info(f"Removed default route from private subnet {namespace}")
+        
+        for other_subnet in all_subnets:
+            if other_subnet['name'] != subnet_name:
+                other_cidr = other_subnet['cidr']
+                run_command(f"ip netns exec {namespace} ip route add {other_cidr} via {gateway}", check=False)
+                logger.info(f"Re-added route to {other_cidr} via {gateway} in private subnet {namespace}")
         
         logger.info(f"Private subnet routing configured for {subnet_name}")
         return True
