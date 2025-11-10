@@ -1,0 +1,14 @@
+[project]
+name = "vpcctl"
+version = "0.1.0"
+description = "python cli tool for creating vpc functionality using only linux networking primitives"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+vpcctl = "vpcctl.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
