@@ -17,25 +17,31 @@ if [ "$confirm" != "yes" ]; then
     exit 0
 fi
 
-echo -e "\n[1/5] Deleting network namespaces..."
-for ns in $(ip netns list | grep -E '^vpc' | awk '{print $1}'); do
-    ip netns del "$ns" 2>/dev/null && echo "  Deleted namespace: $ns" || true
+echo -e "\n[1/6] Deleting network namespaces..."
+for ns in $(ip netns list 2>/dev/null | awk '{print $1}'); do
+    if [[ "$ns" == vpc* ]]; then
+        ip netns del "$ns" 2>/dev/null && echo "  Deleted namespace: $ns" || true
+    fi
 done
 
-echo -e "\n[2/5] Deleting bridges..."
-for bridge in $(ip link show type bridge | grep -E '^[0-9]+: br-' | cut -d: -f2 | awk '{print $1}'); do
+echo -e "\n[2/6] Deleting bridges..."
+for bridge in $(ip link show type bridge 2>/dev/null | grep -oP 'br-\S+'); do
     ip link del "$bridge" 2>/dev/null && echo "  Deleted bridge: $bridge" || true
 done
 
-echo -e "\n[3/5] Flushing iptables NAT rules..."
+echo -e "\n[3/6] Deleting veth pairs..."
+for veth in $(ip link show 2>/dev/null | grep -oP 'v[bn]-\S+'); do
+    ip link del "$veth" 2>/dev/null && echo "  Deleted veth: $veth" || true
+done
+
+echo -e "\n[4/6] Flushing iptables NAT rules..."
 iptables -t nat -F 2>/dev/null && echo "  NAT rules flushed" || true
 
-echo -e "\n[4/5] Flushing iptables FORWARD rules..."
+echo -e "\n[5/6] Flushing iptables FORWARD rules..."
 iptables -F FORWARD 2>/dev/null && echo "  FORWARD rules flushed" || true
 
-echo -e "\n[5/5] Clearing state file..."
-mkdir -p state
-echo '{"vpcs": []}' > state/vpcs.json && echo "  State file cleared" || true
+echo -e "\n[6/6] Clearing state file..."
+rm -f ~/.vpcctl/vpcs.json 2>/dev/null && echo "  State file deleted" || true
 
 echo -e "\n${GREEN}=========================================${NC}"
 echo -e "${GREEN}Cleanup completed successfully!${NC}"
