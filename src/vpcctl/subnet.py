@@ -31,8 +31,8 @@ def create_subnet(vpc_name, subnet_name, cidr, subnet_type):
         return False
     
     namespace = f"{vpc_name}-{subnet_name}"
-    veth_br = f"veth-{vpc_name}-{subnet_name}-br"
-    veth_ns = f"veth-{vpc_name}-{subnet_name}-ns"
+    veth_br = f"vb-{vpc_name[:4]}-{subnet_name[:4]}"
+    veth_ns = f"vn-{vpc_name[:4]}-{subnet_name[:4]}"
     bridge = vpc['bridge']
     bridge_ip = vpc['bridge_ip']
     
