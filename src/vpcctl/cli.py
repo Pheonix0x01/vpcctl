@@ -11,18 +11,20 @@ def main():
     
     if 'exec' in sys.argv:
         exec_index = sys.argv.index('exec')
-        vpcctl_args = sys.argv[1:exec_index+1]
-        remaining = sys.argv[exec_index+1:]
         
         parser = argparse.ArgumentParser()
         parser.add_argument('--verbose', '-v', action='store_true')
-        parser.add_argument('command')
+        parser.add_argument('command', nargs='?')
         parser.add_argument('--vpc', required=True)
         parser.add_argument('--subnet', required=True)
         
-        args, unknown = parser.parse_known_args(vpcctl_args)
+        args, unknown = parser.parse_known_args(sys.argv[1:])
         
-        command_to_run = remaining + unknown
+        command_parts = []
+        for i in range(exec_index + 1, len(sys.argv)):
+            arg = sys.argv[i]
+            if arg not in ['--vpc', '--subnet'] and not (i > 0 and sys.argv[i-1] in ['--vpc', '--subnet']):
+                command_parts.append(arg)
         
         subnet_obj = utils.get_subnet(args.vpc, args.subnet)
         if not subnet_obj:
@@ -30,7 +32,11 @@ def main():
             sys.exit(1)
         
         namespace = subnet_obj['namespace']
-        cmd = ' '.join(command_to_run)
+        cmd = ' '.join(command_parts)
+        
+        if not cmd:
+            utils.logger.error("No command specified for exec")
+            sys.exit(1)
         
         result = utils.run_command(f"ip netns exec {namespace} {cmd}", check=False)
         print(result.stdout, end='')
