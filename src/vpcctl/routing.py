@@ -41,12 +41,10 @@ def add_inter_subnet_routes(vpc_name):
         logger.info(f"VPC '{vpc_name}' has less than 2 subnets, no inter-subnet routes needed")
         return True
     
-    bridge_ip = vpc['bridge_ip']
-    
     try:
         for subnet1 in subnets:
             ns1 = subnet1['namespace']
-            cidr1 = subnet1['cidr']
+            gateway1 = subnet1['gateway']
             
             for subnet2 in subnets:
                 if subnet1['name'] == subnet2['name']:
@@ -54,8 +52,8 @@ def add_inter_subnet_routes(vpc_name):
                 
                 cidr2 = subnet2['cidr']
                 
-                run_command(f"ip netns exec {ns1} ip route add {cidr2} via {bridge_ip}", check=False)
-                logger.info(f"Added route in {ns1}: {cidr2} via {bridge_ip}")
+                run_command(f"ip netns exec {ns1} ip route add {cidr2} via {gateway1}", check=False)
+                logger.info(f"Added route in {ns1}: {cidr2} via {gateway1}")
         
         logger.info(f"Inter-subnet routes configured for VPC '{vpc_name}'")
         return True

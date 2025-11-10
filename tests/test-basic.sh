@@ -20,14 +20,14 @@ echo -e "\n[3/7] Creating private subnet 'private1' with CIDR 10.0.2.0/24..."
 sudo uv run vpcctl create-subnet --vpc vpc1 --name private1 --cidr 10.0.2.0/24 --type private
 
 echo -e "\n[4/7] Testing subnet-to-subnet communication..."
-if sudo uv run vpcctl exec --vpc vpc1 --subnet public1 -- ping -c 2 -W 2 10.0.2.1 > /dev/null 2>&1; then
+if sudo uv run vpcctl exec --vpc vpc1 --subnet public1 -- ping -c 2 -W 2 10.0.2.2 > /dev/null 2>&1; then
     echo -e "${GREEN}✓${NC} Public subnet can reach private subnet"
 else
     echo -e "${RED}✗${NC} Public subnet cannot reach private subnet"
 fi
 
 echo -e "\n[5/7] Testing private-to-public communication..."
-if sudo uv run vpcctl exec --vpc vpc1 --subnet private1 -- ping -c 2 -W 2 10.0.1.1 > /dev/null 2>&1; then
+if sudo uv run vpcctl exec --vpc vpc1 --subnet private1 -- ping -c 2 -W 2 10.0.1.2 > /dev/null 2>&1; then
     echo -e "${GREEN}✓${NC} Private subnet can reach public subnet"
 else
     echo -e "${RED}✗${NC} Private subnet cannot reach public subnet"
@@ -49,4 +49,4 @@ fi
 
 echo -e "\n========================================="
 echo "Test completed!"
-echo "========================================="
+echo "========================================="cleae
