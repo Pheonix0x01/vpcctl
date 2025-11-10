@@ -9,6 +9,35 @@ from . import firewall
 def main():
     utils.check_root()
     
+    if 'exec' in sys.argv:
+        exec_index = sys.argv.index('exec')
+        vpcctl_args = sys.argv[1:exec_index+1]
+        remaining = sys.argv[exec_index+1:]
+        
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--verbose', '-v', action='store_true')
+        parser.add_argument('command')
+        parser.add_argument('--vpc', required=True)
+        parser.add_argument('--subnet', required=True)
+        
+        args, unknown = parser.parse_known_args(vpcctl_args)
+        
+        command_to_run = remaining + unknown
+        
+        subnet_obj = utils.get_subnet(args.vpc, args.subnet)
+        if not subnet_obj:
+            utils.logger.error(f"Subnet '{args.subnet}' not found in VPC '{args.vpc}'")
+            sys.exit(1)
+        
+        namespace = subnet_obj['namespace']
+        cmd = ' '.join(command_to_run)
+        
+        result = utils.run_command(f"ip netns exec {namespace} {cmd}", check=False)
+        print(result.stdout, end='')
+        if result.stderr:
+            print(result.stderr, end='', file=sys.stderr)
+        sys.exit(result.returncode)
+    
     parser = argparse.ArgumentParser(
         description='VPCctl - Linux VPC management using network primitives',
         formatter_class=argparse.RawDescriptionHelpFormatter
@@ -56,11 +85,6 @@ def main():
     policy_clear = subparsers.add_parser('clear-policy', help='Clear firewall policy from subnet')
     policy_clear.add_argument('--vpc', required=True, help='VPC name')
     policy_clear.add_argument('--subnet', required=True, help='Subnet name')
-    
-    exec_cmd = subparsers.add_parser('exec', help='Execute command in subnet namespace')
-    exec_cmd.add_argument('--vpc', required=True, help='VPC name')
-    exec_cmd.add_argument('--subnet', required=True, help='Subnet name')
-    exec_cmd.add_argument('command', nargs='*', help='Command to execute')
     
     args = parser.parse_args()
     
@@ -111,25 +135,6 @@ def main():
         elif args.command == 'clear-policy':
             success = firewall.clear_policy(args.vpc, args.subnet)
             sys.exit(0 if success else 1)
-            
-        elif args.command == 'exec':
-            if not args.command:
-                utils.logger.error("No command specified for exec")
-                sys.exit(1)
-            
-            subnet_obj = utils.get_subnet(args.vpc, args.subnet)
-            if not subnet_obj:
-                utils.logger.error(f"Subnet '{args.subnet}' not found in VPC '{args.vpc}'")
-                sys.exit(1)
-            
-            namespace = subnet_obj['namespace']
-            cmd = ' '.join(args.command)
-            
-            result = utils.run_command(f"ip netns exec {namespace} {cmd}", check=False)
-            print(result.stdout, end='')
-            if result.stderr:
-                print(result.stderr, end='', file=sys.stderr)
-            sys.exit(result.returncode)
             
         else:
             parser.print_help()
