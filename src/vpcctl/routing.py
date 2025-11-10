@@ -16,11 +16,11 @@ def setup_nat(vpc_name, subnet_cidr, internet_interface):
         run_command(f"iptables -t nat -A POSTROUTING -s {subnet_cidr} -o {internet_interface} -j MASQUERADE")
         logger.info(f"Added MASQUERADE rule for {subnet_cidr} on {internet_interface}")
         
-        run_command(f"iptables -A FORWARD -s {subnet_cidr} -j ACCEPT")
-        logger.info(f"Added FORWARD rule for {subnet_cidr}")
+        run_command(f"iptables -A FORWARD -i br-* -o {internet_interface} -j ACCEPT")
+        logger.info(f"Added FORWARD rule for bridge to {internet_interface}")
         
-        run_command("iptables -A FORWARD -m state --state RELATED,ESTABLISHED -j ACCEPT")
-        logger.info("Added FORWARD rule for RELATED,ESTABLISHED connections")
+        run_command(f"iptables -A FORWARD -i {internet_interface} -o br-* -m state --state RELATED,ESTABLISHED -j ACCEPT")
+        logger.info(f"Added FORWARD rule for {internet_interface} to bridge")
         
         logger.info(f"NAT setup completed for {subnet_cidr}")
         return True
@@ -36,24 +36,15 @@ def add_inter_subnet_routes(vpc_name):
         return False
     
     subnets = vpc.get('subnets', [])
+    bridge = vpc['bridge']
     
     if len(subnets) < 2:
         logger.info(f"VPC '{vpc_name}' has less than 2 subnets, no inter-subnet routes needed")
         return True
     
     try:
-        for subnet1 in subnets:
-            ns1 = subnet1['namespace']
-            gateway1 = subnet1['gateway']
-            
-            for subnet2 in subnets:
-                if subnet1['name'] == subnet2['name']:
-                    continue
-                
-                cidr2 = subnet2['cidr']
-                
-                run_command(f"ip netns exec {ns1} ip route add {cidr2} via {gateway1}", check=False)
-                logger.info(f"Added route in {ns1}: {cidr2} via {gateway1}")
+        run_command(f"iptables -A FORWARD -i {bridge} -o {bridge} -j ACCEPT", check=False)
+        logger.info(f"Added iptables rule for inter-bridge forwarding on {bridge}")
         
         logger.info(f"Inter-subnet routes configured for VPC '{vpc_name}'")
         return True
