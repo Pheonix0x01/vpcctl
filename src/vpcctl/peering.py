@@ -10,166 +10,117 @@ def create_peering(vpc1_name, vpc2_name):
     vpc1 = get_vpc(vpc1_name)
     vpc2 = get_vpc(vpc2_name)
     
-    if not vpc1:
-        logger.error(f"VPC '{vpc1_name}' not found")
-        return False
-    
-    if not vpc2:
-        logger.error(f"VPC '{vpc2_name}' not found")
+    if not vpc1 or not vpc2:
+        logger.error(f"One or both VPCs not found")
         return False
     
     if vpc1_name == vpc2_name:
-        logger.error("Cannot peer a VPC with itself")
+        logger.error(f"Cannot peer VPC with itself")
         return False
     
-    for peering in vpc1.get('peerings', []):
-        if peering['peer_vpc'] == vpc2_name:
-            logger.error(f"Peering already exists between '{vpc1_name}' and '{vpc2_name}'")
-            return False
-    
-    peer1_name = f"peer-{vpc1_name}-{vpc2_name}-1"
-    peer2_name = f"peer-{vpc1_name}-{vpc2_name}-2"
     bridge1 = vpc1['bridge']
     bridge2 = vpc2['bridge']
-    vpc1_cidr = vpc1['cidr']
-    vpc2_cidr = vpc2['cidr']
+    cidr1 = vpc1['cidr']
+    cidr2 = vpc2['cidr']
+    
+    veth1 = f"vp-{vpc1_name[:4]}-{vpc2_name[:4]}"
+    veth2 = f"vp-{vpc2_name[:4]}-{vpc1_name[:4]}"
     
     try:
-        run_command(f"ip link add {peer1_name} type veth peer name {peer2_name}")
-        logger.info(f"Created veth pair {peer1_name} <-> {peer2_name}")
+        run_command(f"ip link add {veth1} type veth peer name {veth2}")
+        logger.info(f"Created veth pair {veth1} <-> {veth2}")
         
-        run_command(f"ip link set {peer1_name} master {bridge1}")
-        logger.info(f"Attached {peer1_name} to bridge {bridge1}")
+        run_command(f"ip link set {veth1} master {bridge1}")
+        run_command(f"ip link set {veth2} master {bridge2}")
+        logger.info(f"Attached veth pair to bridges")
         
-        run_command(f"ip link set {peer2_name} master {bridge2}")
-        logger.info(f"Attached {peer2_name} to bridge {bridge2}")
-        
-        run_command(f"ip link set {peer1_name} up")
-        logger.info(f"Brought up {peer1_name}")
-        
-        run_command(f"ip link set {peer2_name} up")
-        logger.info(f"Brought up {peer2_name}")
-        
-        run_command(f"ip route add {vpc2_cidr} dev {bridge1}", check=False)
-        logger.info(f"Added route to {vpc2_cidr} via {bridge1}")
-        
-        run_command(f"ip route add {vpc1_cidr} dev {bridge2}", check=False)
-        logger.info(f"Added route to {vpc1_cidr} via {bridge2}")
-        
-        bridge1_ip = vpc1['bridge_ip']
-        bridge2_ip = vpc2['bridge_ip']
+        run_command(f"ip link set {veth1} up")
+        run_command(f"ip link set {veth2} up")
+        logger.info(f"Brought up veth pair")
         
         for subnet1 in vpc1.get('subnets', []):
             ns1 = subnet1['namespace']
-            run_command(f"ip netns exec {ns1} ip route add {vpc2_cidr} via {bridge1_ip}", check=False)
-            logger.info(f"Added route in {ns1}: {vpc2_cidr} via {bridge1_ip}")
-            
-            for subnet2 in vpc2.get('subnets', []):
-                cidr2 = subnet2['cidr']
-                run_command(f"ip netns exec {ns1} ip route add {cidr2} via {bridge1_ip}", check=False)
+            gw1 = subnet1['gateway']
+            run_command(f"ip netns exec {ns1} ip route add {cidr2} via {gw1}", check=False)
+            logger.info(f"Added route to {cidr2} in {ns1}")
         
         for subnet2 in vpc2.get('subnets', []):
             ns2 = subnet2['namespace']
-            run_command(f"ip netns exec {ns2} ip route add {vpc1_cidr} via {bridge2_ip}", check=False)
-            logger.info(f"Added route in {ns2}: {vpc1_cidr} via {bridge2_ip}")
-            
-            for subnet1 in vpc1.get('subnets', []):
-                cidr1 = subnet1['cidr']
-                run_command(f"ip netns exec {ns2} ip route add {cidr1} via {bridge2_ip}", check=False)
+            gw2 = subnet2['gateway']
+            run_command(f"ip netns exec {ns2} ip route add {cidr1} via {gw2}", check=False)
+            logger.info(f"Added route to {cidr1} in {ns2}")
         
-        peering_data_vpc1 = {
-            "peer_vpc": vpc2_name,
-            "veth_local": peer1_name,
-            "veth_peer": peer2_name
-        }
+        run_command(f"iptables -D FORWARD -i {bridge1} -o {bridge2} -j DROP", check=False)
+        run_command(f"iptables -D FORWARD -i {bridge2} -o {bridge1} -j DROP", check=False)
+        run_command(f"iptables -I FORWARD -i {bridge1} -o {bridge2} -j ACCEPT", check=False)
+        run_command(f"iptables -I FORWARD -i {bridge2} -o {bridge1} -j ACCEPT", check=False)
+        logger.info(f"Removed isolation rules between {bridge1} and {bridge2}")
         
-        peering_data_vpc2 = {
-            "peer_vpc": vpc1_name,
-            "veth_local": peer2_name,
-            "veth_peer": peer1_name
+        peering_data = {
+            "vpc1": vpc1_name,
+            "vpc2": vpc2_name,
+            "veth1": veth1,
+            "veth2": veth2
         }
         
         state = load_state()
         for v in state['vpcs']:
             if v['name'] == vpc1_name:
-                v['peerings'].append(peering_data_vpc1)
+                v.setdefault('peerings', []).append(peering_data)
             elif v['name'] == vpc2_name:
-                v['peerings'].append(peering_data_vpc2)
+                v.setdefault('peerings', []).append(peering_data)
         save_state(state)
         
-        logger.info(f"Peering created successfully between '{vpc1_name}' and '{vpc2_name}'")
+        logger.info(f"Peering created between '{vpc1_name}' and '{vpc2_name}'")
         return True
         
     except Exception as e:
         logger.error(f"Failed to create peering: {e}")
-        run_command(f"ip link del {peer1_name}", check=False)
+        run_command(f"ip link del {veth1}", check=False)
         return False
 
 def delete_peering(vpc1_name, vpc2_name):
     vpc1 = get_vpc(vpc1_name)
     vpc2 = get_vpc(vpc2_name)
     
-    if not vpc1:
-        logger.error(f"VPC '{vpc1_name}' not found")
+    if not vpc1 or not vpc2:
+        logger.error(f"One or both VPCs not found")
         return False
     
-    if not vpc2:
-        logger.error(f"VPC '{vpc2_name}' not found")
-        return False
-    
-    peering1 = None
-    for p in vpc1.get('peerings', []):
-        if p['peer_vpc'] == vpc2_name:
-            peering1 = p
-            break
-    
-    if not peering1:
-        logger.error(f"No peering found between '{vpc1_name}' and '{vpc2_name}'")
-        return False
-    
-    veth_local = peering1['veth_local']
     bridge1 = vpc1['bridge']
     bridge2 = vpc2['bridge']
-    vpc1_cidr = vpc1['cidr']
-    vpc2_cidr = vpc2['cidr']
-    bridge1_ip = vpc1['bridge_ip']
-    bridge2_ip = vpc2['bridge_ip']
+    cidr1 = vpc1['cidr']
+    cidr2 = vpc2['cidr']
+    
+    veth1 = f"vp-{vpc1_name[:4]}-{vpc2_name[:4]}"
     
     try:
-        run_command(f"ip link del {veth_local}", check=False)
-        logger.info(f"Deleted veth {veth_local}")
-        
-        run_command(f"ip route del {vpc2_cidr} dev {bridge1}", check=False)
-        logger.info(f"Deleted route to {vpc2_cidr} via {bridge1}")
-        
-        run_command(f"ip route del {vpc1_cidr} dev {bridge2}", check=False)
-        logger.info(f"Deleted route to {vpc1_cidr} via {bridge2}")
+        run_command(f"ip link del {veth1}", check=False)
+        logger.info(f"Deleted veth pair")
         
         for subnet1 in vpc1.get('subnets', []):
             ns1 = subnet1['namespace']
-            run_command(f"ip netns exec {ns1} ip route del {vpc2_cidr} via {bridge1_ip}", check=False)
-            
-            for subnet2 in vpc2.get('subnets', []):
-                cidr2 = subnet2['cidr']
-                run_command(f"ip netns exec {ns1} ip route del {cidr2} via {bridge1_ip}", check=False)
+            run_command(f"ip netns exec {ns1} ip route del {cidr2}", check=False)
         
         for subnet2 in vpc2.get('subnets', []):
             ns2 = subnet2['namespace']
-            run_command(f"ip netns exec {ns2} ip route del {vpc1_cidr} via {bridge2_ip}", check=False)
-            
-            for subnet1 in vpc1.get('subnets', []):
-                cidr1 = subnet1['cidr']
-                run_command(f"ip netns exec {ns2} ip route del {cidr1} via {bridge2_ip}", check=False)
+            run_command(f"ip netns exec {ns2} ip route del {cidr1}", check=False)
+        
+        run_command(f"iptables -D FORWARD -i {bridge1} -o {bridge2} -j ACCEPT", check=False)
+        run_command(f"iptables -D FORWARD -i {bridge2} -o {bridge1} -j ACCEPT", check=False)
+        run_command(f"iptables -I FORWARD -i {bridge1} -o {bridge2} -j DROP", check=False)
+        run_command(f"iptables -I FORWARD -i {bridge2} -o {bridge1} -j DROP", check=False)
+        logger.info(f"Re-added isolation rules between {bridge1} and {bridge2}")
         
         state = load_state()
         for v in state['vpcs']:
-            if v['name'] == vpc1_name:
-                v['peerings'] = [p for p in v['peerings'] if p['peer_vpc'] != vpc2_name]
-            elif v['name'] == vpc2_name:
-                v['peerings'] = [p for p in v['peerings'] if p['peer_vpc'] != vpc1_name]
+            if v['name'] in [vpc1_name, vpc2_name]:
+                v['peerings'] = [p for p in v.get('peerings', []) 
+                               if not (p['vpc1'] in [vpc1_name, vpc2_name] and 
+                                      p['vpc2'] in [vpc1_name, vpc2_name])]
         save_state(state)
         
-        logger.info(f"Peering deleted successfully between '{vpc1_name}' and '{vpc2_name}'")
+        logger.info(f"Peering deleted between '{vpc1_name}' and '{vpc2_name}'")
         return True
         
     except Exception as e:

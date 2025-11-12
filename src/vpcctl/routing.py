@@ -13,14 +13,26 @@ def setup_nat(vpc_name, subnet_cidr, internet_interface):
             run_command("echo 1 > /proc/sys/net/ipv4/ip_forward")
             logger.info("IP forwarding enabled")
         
+        vpc = get_vpc(vpc_name)
+        bridge = vpc['bridge']
+        
         run_command(f"iptables -t nat -A POSTROUTING -s {subnet_cidr} -o {internet_interface} -j MASQUERADE")
         logger.info(f"Added MASQUERADE rule for {subnet_cidr} on {internet_interface}")
         
-        run_command(f"iptables -A FORWARD -i br-* -o {internet_interface} -j ACCEPT")
+        run_command(f"iptables -A FORWARD -i {bridge} -o {internet_interface} -j ACCEPT")
         logger.info(f"Added FORWARD rule for bridge to {internet_interface}")
         
-        run_command(f"iptables -A FORWARD -i {internet_interface} -o br-* -m state --state RELATED,ESTABLISHED -j ACCEPT")
+        run_command(f"iptables -A FORWARD -i {internet_interface} -o {bridge} -m state --state RELATED,ESTABLISHED -j ACCEPT")
         logger.info(f"Added FORWARD rule for {internet_interface} to bridge")
+        
+        state = load_state()
+        all_vpcs = state.get('vpcs', [])
+        for other_vpc in all_vpcs:
+            if other_vpc['name'] != vpc_name:
+                other_bridge = other_vpc['bridge']
+                run_command(f"iptables -I FORWARD -i {bridge} -o {other_bridge} -j DROP", check=False)
+                run_command(f"iptables -I FORWARD -i {other_bridge} -o {bridge} -j DROP", check=False)
+                logger.info(f"Added isolation rules between {bridge} and {other_bridge}")
         
         logger.info(f"NAT setup completed for {subnet_cidr}")
         return True

@@ -32,15 +32,20 @@ else
 fi
 
 echo -e "\n[6/7] Applying restrictive firewall policy..."
-cat > /tmp/test-policy.yaml << EOF
-rules:
-  - action: drop
-    protocol: tcp
-    port: 8080
-    direction: ingress
+cat > /tmp/test-policy.json << EOF
+{
+  "subnet": "10.0.2.0/24",
+  "ingress": [
+    {
+      "port": 8080,
+      "protocol": "tcp",
+      "action": "deny"
+    }
+  ]
+}
 EOF
 
-sudo uv run vpcctl apply-policy --vpc vpc1 --subnet private1 --file /tmp/test-policy.yaml
+sudo uv run vpcctl apply-policy --vpc vpc1 --subnet private1 --file /tmp/test-policy.json
 
 echo -e "\n[7/7] Testing HTTP access after firewall (should fail)..."
 if sudo uv run vpcctl exec --vpc vpc1 --subnet public1 curl -s -m 2 http://10.0.2.2:8080 > /dev/null 2>&1; then
@@ -50,7 +55,7 @@ else
 fi
 
 sudo kill $HTTP_PID 2>/dev/null || true
-rm -f /tmp/test-policy.yaml
+rm -f /tmp/test-policy.json
 
 echo -e "\n========================================="
 echo "Firewall test completed!"
