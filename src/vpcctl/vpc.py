@@ -36,6 +36,9 @@ def create_vpc(name, cidr):
         run_command(f"echo 0 > /proc/sys/net/ipv4/conf/{bridge}/send_redirects")
         logger.info(f"Disabled ICMP redirects on {bridge}")
         
+        run_command(f"echo 0 > /proc/sys/net/ipv4/conf/{bridge}/rp_filter")
+        logger.info(f"Disabled reverse path filtering on {bridge}")
+        
         run_command(f"echo 1 > /proc/sys/net/ipv4/conf/{bridge}/forwarding")
         logger.info(f"Enabled forwarding on {bridge}")
         

@@ -53,6 +53,9 @@ def create_subnet(vpc_name, subnet_name, cidr, subnet_type):
         run_command(f"ip addr add {gateway_ip}/{prefix} dev {bridge}")
         logger.info(f"Added IP {gateway_ip}/{prefix} to bridge {bridge}")
         
+        run_command(f"echo 0 > /proc/sys/net/ipv4/conf/{veth_br}/rp_filter")
+        logger.info(f"Disabled rp_filter on {veth_br}")
+        
         run_command(f"ip link set {veth_br} up")
         logger.info(f"Brought up {veth_br}")
         
