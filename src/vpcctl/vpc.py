@@ -17,15 +17,10 @@ def create_vpc(name, cidr):
         return False
     
     bridge = f"br-{name}"
-    bridge_ip = cidr.split('/')[0].rsplit('.', 1)[0] + '.1'
-    prefix = cidr.split('/')[1]
     
     try:
         run_command(f"ip link add {bridge} type bridge")
         logger.info(f"Created bridge {bridge}")
-        
-        run_command(f"ip addr add {bridge_ip}/{prefix} dev {bridge}")
-        logger.info(f"Assigned IP {bridge_ip}/{prefix} to {bridge}")
         
         run_command(f"ip link set {bridge} up")
         logger.info(f"Bridge {bridge} is up")
@@ -42,11 +37,13 @@ def create_vpc(name, cidr):
         run_command(f"echo 1 > /proc/sys/net/ipv4/conf/{bridge}/forwarding")
         logger.info(f"Enabled forwarding on {bridge}")
         
+        run_command(f"echo 1 > /proc/sys/net/ipv4/conf/{bridge}/proxy_arp")
+        logger.info(f"Enabled proxy ARP on {bridge}")
+        
         vpc_data = {
             "name": name,
             "cidr": cidr,
             "bridge": bridge,
-            "bridge_ip": bridge_ip,
             "subnets": [],
             "peerings": []
         }
